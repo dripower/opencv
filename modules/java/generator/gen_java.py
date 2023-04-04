@@ -1178,7 +1178,7 @@ JNIEXPORT $rtype JNICALL Java_org_opencv_${module}_${clazz}_$fname
             ci.j_code.write(
 """
     @Override
-    protected void finalize() throws Throwable {
+    protected void close() throws Throwable {
         delete(nativeObj);
     }
 """ )
