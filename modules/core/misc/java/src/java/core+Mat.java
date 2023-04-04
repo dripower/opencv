@@ -751,10 +751,8 @@ public class Mat {
         return new Mat(n_zeros(sizes.length, sizes, type));
     }
 
-    @Override
-    protected void finalize() throws Throwable {
+    public void close() throws Throwable {
         n_delete(nativeObj);
-        super.finalize();
     }
 
     // javadoc:Mat::toString()
