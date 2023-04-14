@@ -4,7 +4,7 @@ import java.nio.ByteBuffer;
 
 // C++: class Mat
 //javadoc: Mat
-public class Mat {
+public class Mat implements AutoCloseable {
 
     public final long nativeObj;
 
@@ -751,7 +751,7 @@ public class Mat {
         return new Mat(n_zeros(sizes.length, sizes, type));
     }
 
-    public void close() throws Throwable {
+    public void close() {
         n_delete(nativeObj);
     }
 
