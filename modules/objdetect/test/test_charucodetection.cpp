@@ -612,7 +612,7 @@ TEST(Charuco, testBoardSubpixelCoords)
     cv::GaussianBlur(gray, gray, Size(5, 5), 1.0);
 
     aruco::DetectorParameters params;
-    params.cornerRefinementMethod = cv::aruco::CORNER_REFINE_APRILTAG;
+    params.cornerRefinementMethod = (int)cv::aruco::CORNER_REFINE_APRILTAG;
 
     aruco::CharucoParameters charucoParameters;
     charucoParameters.cameraMatrix = K;
@@ -636,7 +636,7 @@ TEST(Charuco, issue_14014)
     Mat img = imread(imgPath);
 
     aruco::DetectorParameters detectorParams;
-    detectorParams.cornerRefinementMethod = aruco::CORNER_REFINE_SUBPIX;
+    detectorParams.cornerRefinementMethod = (int)aruco::CORNER_REFINE_SUBPIX;
     detectorParams.cornerRefinementMinAccuracy = 0.01;
     aruco::ArucoDetector detector(aruco::getPredefinedDictionary(aruco::DICT_7X7_250), detectorParams);
     aruco::CharucoBoard board(Size(8, 5), 0.03455f, 0.02164f, detector.getDictionary());
@@ -687,6 +687,34 @@ TEST(Charuco, testmatchImagePoints)
         EXPECT_EQ(chessboardPoints[i].x, objPoints[i].x);
         EXPECT_EQ(chessboardPoints[i].y, objPoints[i].y);
     }
+}
+
+typedef testing::TestWithParam<cv::Size> CharucoBoard;
+INSTANTIATE_TEST_CASE_P(/**/, CharucoBoard, testing::Values(Size(3, 2), Size(3, 2), Size(6, 2), Size(2, 6),
+                                                            Size(3, 4), Size(4, 3), Size(7, 3), Size(3, 7)));
+TEST_P(CharucoBoard, testWrongSizeDetection)
+{
+    cv::Size boardSize = GetParam();
+    ASSERT_FALSE(boardSize.width == boardSize.height);
+    aruco::CharucoBoard board(boardSize, 1.f, 0.5f, aruco::getPredefinedDictionary(aruco::DICT_4X4_50));
+
+    vector<int> detectedCharucoIds, detectedArucoIds;
+    vector<Point2f> detectedCharucoCorners;
+    vector<vector<Point2f>> detectedArucoCorners;
+    Mat boardImage;
+    board.generateImage(boardSize*40, boardImage);
+
+    swap(boardSize.width, boardSize.height);
+    aruco::CharucoDetector detector(aruco::CharucoBoard(boardSize, 1.f, 0.5f, aruco::getPredefinedDictionary(aruco::DICT_4X4_50)));
+    // try detect board with wrong size
+    detector.detectBoard(boardImage, detectedCharucoCorners, detectedCharucoIds, detectedArucoCorners, detectedArucoIds);
+
+    // aruco markers must be found
+    ASSERT_EQ(detectedArucoIds.size(), board.getIds().size());
+    ASSERT_EQ(detectedArucoCorners.size(), board.getIds().size());
+    // charuco corners should not be found in board with wrong size
+    ASSERT_TRUE(detectedCharucoCorners.empty());
+    ASSERT_TRUE(detectedCharucoIds.empty());
 }
 
 }} // namespace
