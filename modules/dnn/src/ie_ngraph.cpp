@@ -383,11 +383,17 @@ public:
 
 #endif // OpenVINO >= 2022.1
 
-InfEngineNgraphNode::InfEngineNgraphNode(std::shared_ptr<ngraph::Node>&& _node)
-    : BackendNode(DNN_BACKEND_INFERENCE_ENGINE_NGRAPH), node(std::move(_node)) {}
+InfEngineNgraphNode::InfEngineNgraphNode(ngraph::Output<ngraph::Node>&& _node)
+    : BackendNode(DNN_BACKEND_INFERENCE_ENGINE_NGRAPH), node(std::move(_node)) {
+    CV_Assert(node.get_node());
+    CV_Assert(node.get_node_shared_ptr());
+}
 
-InfEngineNgraphNode::InfEngineNgraphNode(const std::shared_ptr<ngraph::Node>& _node)
-    : BackendNode(DNN_BACKEND_INFERENCE_ENGINE_NGRAPH), node(_node) {}
+InfEngineNgraphNode::InfEngineNgraphNode(const ngraph::Output<ngraph::Node>& _node)
+    : BackendNode(DNN_BACKEND_INFERENCE_ENGINE_NGRAPH), node(_node) {
+    CV_Assert(node.get_node());
+    CV_Assert(node.get_node_shared_ptr());
+}
 
 InfEngineNgraphNode::InfEngineNgraphNode(const std::vector<Ptr<BackendNode> >& nodes,
                                          Ptr<Layer>& cvLayer_, std::vector<Mat*>& inputs,
@@ -420,7 +426,7 @@ InfEngineNgraphNode::InfEngineNgraphNode(const std::vector<Ptr<BackendNode> >& n
 }
 
 void InfEngineNgraphNode::setName(const std::string& name) {
-    node->set_friendly_name(name);
+    node.get_node()->set_friendly_name(name);
 }
 
 InfEngineNgraphNet::InfEngineNgraphNet(detail::NetImplBase& netImpl)
@@ -441,8 +447,7 @@ InfEngineNgraphNet::InfEngineNgraphNet(detail::NetImplBase& netImpl, InferenceEn
 void InfEngineNgraphNet::addOutput(const Ptr<InfEngineNgraphNode>& node)
 {
     CV_Assert(node);
-    CV_Assert(node->node);
-    const std::string& name = node->node->get_friendly_name();
+    const std::string& name = node->node.get_node()->get_friendly_name();
     requestedOutputs.insert({name, node.get()});
 }
 
@@ -458,7 +463,7 @@ void InfEngineNgraphNet::createNet(Target targetId) {
             CV_Assert(output_node_it->second);
             auto out = std::make_shared<ngraph::op::Result>(output_node_it->second->node);
 #if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2022_1)
-            out->set_friendly_name(output_node_it->first + (output_node_it->second->node->get_output_size() == 1 ? "" : ".0"));
+            out->set_friendly_name(output_node_it->first + (output_node_it->second->node.get_node()->get_output_size() == 1 ? "" : ".0"));
 #endif
             outs.push_back(out);
         }
@@ -585,7 +590,7 @@ void InfEngineNgraphNet::init(Target targetId)
             allBlobs[name] = ov::Tensor(src.get_element_type(), outShape, src.data());
         }
 
-        ppp.output(i++).tensor().set_element_type(ov::element::f32);  // Should be always FP32
+        ppp.output(i++).tensor().set_element_type(src.get_element_type());
     }
 
     ppp.build();
@@ -835,6 +840,8 @@ ov::Tensor wrapToNgraphBlob(const Mat& m) {
         return ov::Tensor(ov::element::f32, shape, m.data);
     else if (m.type() == CV_8U)
         return ov::Tensor(ov::element::u8, shape, m.data);
+    else if (m.type() == CV_8SC1)
+        return ov::Tensor(ov::element::i8, shape, m.data);
     else if (m.type() == CV_32SC1)
         return ov::Tensor(ov::element::i32, shape, m.data);
     else
@@ -1227,6 +1234,32 @@ void InfEngineNgraphNet::forward(const std::vector<Ptr<BackendWrapper> >& outBlo
         reqWrapper->req.Infer();
     }
 #endif // OpenVINO >= 2022.1
+}
+
+ngraph::Output<ngraph::Node> ngraphQuantize(ngraph::Output<ngraph::Node> input, float output_sc, float output_zp) {
+    float outLow = -128, outHigh = 127;
+    float inpLow = output_sc * (outLow - output_zp);
+    float inpHigh = output_sc * (outHigh - output_zp);
+    return std::make_shared<ngraph::op::FakeQuantize>(input,
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &inpLow),
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &inpHigh),
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &outLow),
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &outHigh),
+        256 // levels
+    );
+}
+
+ngraph::Output<ngraph::Node> ngraphDequantize(ngraph::Output<ngraph::Node> input, float input_sc, float input_zp) {
+    float inpLow = -128, inpHigh = 127;
+    float outLow = input_sc * (inpLow - input_zp);
+    float outHigh = input_sc * (inpHigh - input_zp);
+    return std::make_shared<ngraph::op::FakeQuantize>(input,
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &inpLow),
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &inpHigh),
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &outLow),
+        std::make_shared<ngraph::op::Constant>(ngraph::element::f32, ngraph::Shape{1}, &outHigh),
+        256 // levels
+    );
 }
 
 #endif

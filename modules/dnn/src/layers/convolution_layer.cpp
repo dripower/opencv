@@ -242,8 +242,6 @@ public:
 };
 
 
-#define IS_POWER_LAYER(layer) \
-            (!layer.empty() && !layer->type.compare("Power"))
 //TODO: simultaneously convolution and bias addition for cache optimization
 class ConvolutionLayerImpl CV_FINAL : public BaseConvolutionLayerImpl
 {
@@ -822,13 +820,13 @@ public:
         CV_Assert(!blobs.empty());
         CV_Assert_N(inputs.size() >= 1, nodes.size() >= 1);
         auto& ieInpNode = nodes[0].dynamicCast<InfEngineNgraphNode>()->node;
-        std::vector<size_t> dims = ieInpNode->get_shape();
+        std::vector<size_t> dims = ieInpNode.get_shape();
         CV_Check(dims.size(), dims.size() >= 3 && dims.size() <= 5, "");
-        std::shared_ptr<ngraph::Node> ieWeights = nodes.size() > 1 ? nodes[1].dynamicCast<InfEngineNgraphNode>()->node : nullptr;
+        ngraph::Output<ngraph::Node> ieWeights;
         if (nodes.size() > 1)
-            CV_Assert(ieWeights);  // dynamic_cast should not fail
+            ieWeights = nodes[1].dynamicCast<InfEngineNgraphNode>()->node;
         const int inpCn = dims[1];
-        const int inpGroupCn = nodes.size() > 1 ? ieWeights->get_shape()[1] : blobs[0].size[1];
+        const int inpGroupCn = nodes.size() > 1 ? ieWeights.get_shape()[1] : blobs[0].size[1];
         const int group = inpCn / inpGroupCn;
 
         std::vector<size_t> kernel_shape;
@@ -1069,7 +1067,7 @@ public:
             config.pads = pads;
             config.stride = stride;
             config.dilation = dilation;
-            if (inputs[0].dims != 4 && inputs[0].dims != umat_blobs[0].dims)
+            if (inputs[0].dims != 4 && inputs[0].dims != (blobs.empty() ? umat_blobs[0].dims : blobs[0].dims))
             {
                 static bool bypassCheck = utils::getConfigurationParameterBool("OPENCV_OCL4DNN_CONVOLUTION_IGNORE_INPUT_DIMS_4_CHECK", false);
                 if (!bypassCheck)
@@ -1081,7 +1079,7 @@ public:
                     return false;
                 }
             }
-            config.group = inputs[0].size[1] / umat_blobs[0].size[1];
+            config.group = inputs[0].size[1] / (blobs.empty() ? umat_blobs[0].size[1] : blobs[0].size[1]);
             if (config.group < 1)  // config.group == 0 causes div by zero in ocl4dnn code
             {
                 CV_LOG_WARNING(NULL, "DNN/OpenCL: Unsupported config.group=" << config.group
